@@ -22,6 +22,8 @@ import static frc.robot.Constants.Swerve.*;
 
 public class SwerveModule extends SubsystemBase {
 
+  private int moduleNumber;
+
   private CANSparkMax motor1;
   private CANSparkMax motor2;
   private AnalogInput angleEncoder;
@@ -31,15 +33,26 @@ public class SwerveModule extends SubsystemBase {
 
   private ProfiledPIDController anglePID;
 
-
   /** Creates a new SwerveModule. */
-  public SwerveModule() {
-    motor1 = new CANSparkMax(MOTOR_1_PORT, MotorType.kBrushless);
+  public SwerveModule(int moduleNumber) {
+    this.moduleNumber = moduleNumber;
+
+    motor1 = new CANSparkMax(MOTOR_1_PORTS[moduleNumber], MotorType.kBrushless);
     motor1.restoreFactoryDefaults();
+    motor1.setInverted(MOTOR_1_INVERTS[moduleNumber]);
     motor1.setIdleMode(IdleMode.kBrake);
-    motor2 = new CANSparkMax(MOTOR_2_PORT, MotorType.kBrushless);
+    motor2 = new CANSparkMax(MOTOR_2_PORTS[moduleNumber], MotorType.kBrushless);
     motor2.restoreFactoryDefaults();
+    motor2.setInverted(MOTOR_2_INVERTS[moduleNumber]);
     motor2.setIdleMode(IdleMode.kBrake);
+
+    motor1PID = new PIDController(
+      SPEED_PID_KP, SPEED_PID_KI, SPEED_PID_KD
+    );
+
+    motor2PID = new PIDController( // TODO: might have different pid values
+      SPEED_PID_KP, SPEED_PID_KI, SPEED_PID_KD
+    );
 
     anglePID = new ProfiledPIDController(
       ANGLE_PID_KP, ANGLE_PID_KI, ANGLE_PID_KD, 
@@ -58,31 +71,33 @@ public class SwerveModule extends SubsystemBase {
     double angleSetpointNative = radiansToNative(state.angle.getRadians());
     double anglePIDOutput = anglePID.calculate(getAngle(), angleSetpointNative);
 
-    double speedSetpointNative = metersPerSecondToNative(state.speedMetersPerSecond);
-    double motor1PIDOutput = motor1PID.calculate(getSpeed(), speedSetpointNative);
-    double motor2PIDOutput = motor2PID.calculate(getSpeed(), speedSetpointNative);
+    double wheelSpeedSetpointNative = metersPerSecondToNative(state.speedMetersPerSecond);
+
+    // Kind of scuffed algebra please check my math
+    double motor1SetpointNative = (((2 * CARRIER_GEAR_TEETH) * wheelSpeedSetpointNative) - (motor2.getEncoder().getVelocity() * MOTOR_GEAR_TEETH)) / MOTOR_GEAR_TEETH;
+    double motor1PIDOutput = motor1PID.calculate(motor2.getEncoder().getVelocity(), motor1SetpointNative);
+
+    double motor2SetpointNative = ((2 * wheelSpeedSetpointNative) * CARRIER_GEAR_TEETH) / MOTOR_GEAR_TEETH + motor1.getEncoder().getVelocity();
+    double motor2PIDOutput = motor2PID.calculate(motor2.getEncoder().getVelocity(), motor2SetpointNative);
 
     motor1.setVoltage(
       motor1PIDOutput +
-      state.speedMetersPerSecond == 0.0 ? 0.0 : anglePIDOutput
+      state.speedMetersPerSecond == 0.0 ? 0.0 : anglePIDOutput // doesnt reset angle if speed is 0.0
     );
     motor2.setVoltage(
-      -motor2PIDOutput +
+      motor2PIDOutput +
       state.speedMetersPerSecond == 0.0 ? 0.0 : anglePIDOutput
     );
 
   }
 
-
-    /**
+  /**
    * 
    * @return meters per count of talon fx encoder based on current gear
    */
   public double getMetersPerCount() {
     return WHEEL_CIRCUMFERENCE / DRIVE_GEAR_RATIO / NEO_ENCODER_CPR;
   }
-
-
 
   /**
    * 
@@ -92,8 +107,6 @@ public class SwerveModule extends SubsystemBase {
   public double metersPerSecondToNative(double metersPerSecond) {
     return metersPerSecond / getMetersPerCount() / 10;
   }
-
-  
 
   /**
    * 
@@ -126,11 +139,14 @@ public class SwerveModule extends SubsystemBase {
     return -1 * MathUtil.inputModulus(angleEncoder.getAverageVoltage() , 0, ANGLE_ENCODER_CPR) + ANGLE_ENCODER_CPR;
   }
 
-  public double getSpeed() {
+  /**
+   * Gets the speed of the wheel
+   * @return
+   */
+  public double getWheelSpeed() {
     return nativeToMetersPerSecond(
-      motor1.getEncoder().getVelocity() + 
-      Math.abs(motor2.getEncoder().getVelocity())
-      );
+       ((motor2.getEncoder().getVelocity() - motor1.getEncoder().getVelocity()) / 2) - (MOTOR_GEAR_TEETH / CARRIER_GEAR_TEETH)
+    );
   }
 
   @Override
