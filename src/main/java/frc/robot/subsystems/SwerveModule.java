@@ -73,11 +73,12 @@ public class SwerveModule extends SubsystemBase {
 
     double wheelSpeedSetpointNative = metersPerSecondToNative(state.speedMetersPerSecond);
 
-    // Kind of scuffed algebra please check my math
-    double motor1SetpointNative = (((2 * CARRIER_GEAR_TEETH) * wheelSpeedSetpointNative) - (motor2.getEncoder().getVelocity() * MOTOR_GEAR_TEETH)) / MOTOR_GEAR_TEETH;
+    double motor1SetpointNative = 
+      anglePIDOutput - wheelSpeedSetpointNative * (CARRIER_GEAR_TEETH / MOTOR_GEAR_TEETH);
     double motor1PIDOutput = motor1PID.calculate(motor2.getEncoder().getVelocity(), motor1SetpointNative);
 
-    double motor2SetpointNative = ((2 * wheelSpeedSetpointNative) * CARRIER_GEAR_TEETH) / MOTOR_GEAR_TEETH + motor1.getEncoder().getVelocity();
+    double motor2SetpointNative = 
+      anglePIDOutput + wheelSpeedSetpointNative * (CARRIER_GEAR_TEETH / MOTOR_GEAR_TEETH);
     double motor2PIDOutput = motor2PID.calculate(motor2.getEncoder().getVelocity(), motor2SetpointNative);
 
     motor1.setVoltage(
